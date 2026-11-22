@@ -1,11 +1,12 @@
 import streamlit as st
-import anthropic
+from google import genai
+from google.genai import types
 
 st.set_page_config(page_title="AI Debat", page_icon="🎤")
 st.title("🎤 AI Debat")
 
-client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-MODEL = "claude-sonnet-5-5"
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+MODEL = "gemini-2.5-flash"
 
 # ---------- Sidebar: pengaturan debat ----------
 with st.sidebar:
@@ -41,6 +42,29 @@ for m in st.session_state.messages:
 if not st.session_state.messages:
     st.info(f"Topik: **{topik}**. AI di pihak **{posisi_ai}**. Kirim argumen pertamamu!")
 
+
+def ke_format_gemini(messages):
+    """Ubah riwayat chat ke format Gemini (peran 'assistant' jadi 'model')."""
+    hasil = []
+    for m in messages:
+        peran = "user" if m["role"] == "user" else "model"
+        hasil.append(types.Content(role=peran, parts=[types.Part(text=m["content"])]))
+    return hasil
+
+
+def aliran_teks(messages):
+    for chunk in client.models.generate_content_stream(
+        model=MODEL,
+        contents=ke_format_gemini(messages),
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=800,
+        ),
+    ):
+        if chunk.text:
+            yield chunk.text
+
+
 # ---------- Input pengguna ----------
 if prompt := st.chat_input("Tulis argumenmu..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -49,13 +73,7 @@ if prompt := st.chat_input("Tulis argumenmu..."):
 
     with st.chat_message("assistant"):
         try:
-            with client.messages.stream(
-                model=MODEL,
-                max_tokens=800,
-                system=SYSTEM_PROMPT,
-                messages=st.session_state.messages,
-            ) as stream:
-                jawaban = st.write_stream(stream.text_stream)
+            jawaban = st.write_stream(aliran_teks(st.session_state.messages))
         except Exception as e:
             jawaban = f"Maaf, terjadi error: {e}"
             st.error(jawaban)
